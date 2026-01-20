@@ -65,7 +65,14 @@
 
         if (currentUrl) {
           video.src = currentUrl;
-          video.play();
+          video.muted = false;
+          video.play().catch(() => {
+            // If autoplay fails, try muted first
+            video.muted = true;
+            video.play().then(() => {
+              video.muted = false;
+            }).catch(() => {});
+          });
 
           // Check for audio tracks in customData
           const customData = loadRequestData.media && loadRequestData.media.customData;
@@ -86,7 +93,15 @@
     // Seamless loop when video ends
     video.addEventListener('ended', () => {
       video.currentTime = 0;
-      video.play();
+      video.play().catch(() => {});
+    });
+
+    // Also handle timeupdate to catch near-end and loop early (backup)
+    video.addEventListener('timeupdate', () => {
+      if (video.duration && video.currentTime >= video.duration - 0.1) {
+        video.currentTime = 0;
+        video.play().catch(() => {});
+      }
     });
 
     // Handle PAUSE
