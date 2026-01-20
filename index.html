@@ -2,57 +2,99 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Fireplace Cast Receiver</title>
+  <title>Fireplace</title>
   <style>
-    body { margin: 0; background: #000; overflow: hidden; }
-    cast-media-player {
-      --advancement-background: transparent;
-      --advancement-text-color: transparent;
-    }
-    /* Hide all overlays and UI elements */
-    .advancement-container,
-    .advancement-text,
-    .advancement-banner,
-    .advancement-info {
-      display: none !important;
-      opacity: 0 !important;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; width: 100vw; height: 100vh; }
+    video { width: 100%; height: 100%; object-fit: contain; }
   </style>
-  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 </head>
 <body>
-  <cast-media-player></cast-media-player>
+  <video id="video" autoplay></video>
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
     const playerManager = context.getPlayerManager();
+    const video = document.getElementById('video');
 
-    // Seamless loop: when video ends, seek to beginning and play
-    playerManager.addEventListener(
-      cast.framework.events.EventType.MEDIA_FINISHED,
-      (event) => {
-        const mediaInfo = playerManager.getMediaInformation();
-        if (mediaInfo) {
-          playerManager.seek(0);
-          playerManager.play();
-        }
-      }
-    );
+    let currentUrl = '';
 
-    // Hide metadata display
+    // Handle LOAD message - extract video URL and play directly
     playerManager.setMessageInterceptor(
       cast.framework.messages.MessageType.LOAD,
       (loadRequestData) => {
-        // Clear metadata to prevent title display
-        if (loadRequestData.media && loadRequestData.media.metadata) {
-          loadRequestData.media.metadata = {};
+        if (loadRequestData.media && loadRequestData.media.contentId) {
+          currentUrl = loadRequestData.media.contentId;
+        } else if (loadRequestData.media && loadRequestData.media.contentUrl) {
+          currentUrl = loadRequestData.media.contentUrl;
         }
-        return loadRequestData;
+
+        if (currentUrl) {
+          video.src = currentUrl;
+          video.play();
+        }
+
+        // Return null to prevent default player from handling
+        return null;
+      }
+    );
+
+    // Seamless loop when video ends
+    video.addEventListener('ended', () => {
+      video.currentTime = 0;
+      video.play();
+    });
+
+    // Handle PAUSE
+    playerManager.setMessageInterceptor(
+      cast.framework.messages.MessageType.PAUSE,
+      () => { video.pause(); return null; }
+    );
+
+    // Handle PLAY
+    playerManager.setMessageInterceptor(
+      cast.framework.messages.MessageType.PLAY,
+      () => { video.play(); return null; }
+    );
+
+    // Handle SEEK
+    playerManager.setMessageInterceptor(
+      cast.framework.messages.MessageType.SEEK,
+      (seekData) => {
+        if (seekData.currentTime !== undefined) {
+          video.currentTime = seekData.currentTime;
+        }
+        return null;
+      }
+    );
+
+    // Handle STOP
+    playerManager.setMessageInterceptor(
+      cast.framework.messages.MessageType.STOP,
+      () => {
+        video.pause();
+        video.src = '';
+        return null;
+      }
+    );
+
+    // Handle SET_VOLUME
+    playerManager.setMessageInterceptor(
+      cast.framework.messages.MessageType.SET_VOLUME,
+      (volumeData) => {
+        if (volumeData.volume && volumeData.volume.level !== undefined) {
+          video.volume = volumeData.volume.level;
+        }
+        if (volumeData.volume && volumeData.volume.muted !== undefined) {
+          video.muted = volumeData.volume.muted;
+        }
+        return null;
       }
     );
 
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.skipPlayersLoad = false;
+    options.skipPlayersLoad = true;  // We handle playback ourselves
 
     context.start(options);
   </script>
