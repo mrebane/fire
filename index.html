@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Fireplace Cast Receiver</title>
+  <style>
+    body { margin: 0; background: #000; overflow: hidden; }
+    cast-media-player {
+      --advancement-background: transparent;
+      --advancement-text-color: transparent;
+    }
+    /* Hide all overlays and UI elements */
+    .advancement-container,
+    .advancement-text,
+    .advancement-banner,
+    .advancement-info {
+      display: none !important;
+      opacity: 0 !important;
+    }
+  </style>
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+</head>
+<body>
+  <cast-media-player></cast-media-player>
+  <script>
+    const context = cast.framework.CastReceiverContext.getInstance();
+    const playerManager = context.getPlayerManager();
+
+    // Seamless loop: when video ends, seek to beginning and play
+    playerManager.addEventListener(
+      cast.framework.events.EventType.MEDIA_FINISHED,
+      (event) => {
+        const mediaInfo = playerManager.getMediaInformation();
+        if (mediaInfo) {
+          playerManager.seek(0);
+          playerManager.play();
+        }
+      }
+    );
+
+    // Hide metadata display
+    playerManager.setMessageInterceptor(
+      cast.framework.messages.MessageType.LOAD,
+      (loadRequestData) => {
+        // Clear metadata to prevent title display
+        if (loadRequestData.media && loadRequestData.media.metadata) {
+          loadRequestData.media.metadata = {};
+        }
+        return loadRequestData;
+      }
+    );
+
+    const options = new cast.framework.CastReceiverOptions();
+    options.disableIdleTimeout = true;
+    options.skipPlayersLoad = false;
+
+    context.start(options);
+  </script>
+</body>
+</html>
