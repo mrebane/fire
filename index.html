@@ -17,9 +17,40 @@
     const playerManager = context.getPlayerManager();
     const video = document.getElementById('video');
 
+    // Audio tracks management
+    const audioTracks = {};
+    const AUDIO_BASE_URL = 'https://mrebane.github.io/fire/';
+
+    function createAudioTrack(id, url, volume) {
+      if (audioTracks[id]) {
+        audioTracks[id].pause();
+      }
+      const audio = new Audio(url);
+      audio.loop = true;
+      audio.volume = volume;
+      audioTracks[id] = audio;
+      return audio;
+    }
+
+    function playAllAudio() {
+      Object.values(audioTracks).forEach(a => a.play().catch(() => {}));
+    }
+
+    function pauseAllAudio() {
+      Object.values(audioTracks).forEach(a => a.pause());
+    }
+
+    function stopAllAudio() {
+      Object.values(audioTracks).forEach(a => {
+        a.pause();
+        a.src = '';
+      });
+      Object.keys(audioTracks).forEach(k => delete audioTracks[k]);
+    }
+
     let currentUrl = '';
 
-    // Handle LOAD message - extract video URL and play directly
+    // Handle LOAD message - extract video URL and audio config from customData
     playerManager.setMessageInterceptor(
       cast.framework.messages.MessageType.LOAD,
       (loadRequestData) => {
@@ -29,12 +60,25 @@
           currentUrl = loadRequestData.media.contentUrl;
         }
 
+        // Stop existing audio
+        stopAllAudio();
+
         if (currentUrl) {
           video.src = currentUrl;
           video.play();
+
+          // Check for audio tracks in customData
+          const customData = loadRequestData.media && loadRequestData.media.customData;
+          if (customData && customData.audioTracks) {
+            // audioTracks format: [{ id: 'fire', url: 'fire-cracking-optimized.mp3', volume: 0.8 }, ...]
+            customData.audioTracks.forEach(track => {
+              const url = track.url.startsWith('http') ? track.url : AUDIO_BASE_URL + track.url;
+              const audio = createAudioTrack(track.id, url, track.volume || 1.0);
+              audio.play().catch(() => {});
+            });
+          }
         }
 
-        // Return null to prevent default player from handling
         return null;
       }
     );
@@ -48,13 +92,21 @@
     // Handle PAUSE
     playerManager.setMessageInterceptor(
       cast.framework.messages.MessageType.PAUSE,
-      () => { video.pause(); return null; }
+      () => {
+        video.pause();
+        pauseAllAudio();
+        return null;
+      }
     );
 
     // Handle PLAY
     playerManager.setMessageInterceptor(
       cast.framework.messages.MessageType.PLAY,
-      () => { video.play(); return null; }
+      () => {
+        video.play();
+        playAllAudio();
+        return null;
+      }
     );
 
     // Handle SEEK
@@ -74,11 +126,12 @@
       () => {
         video.pause();
         video.src = '';
+        stopAllAudio();
         return null;
       }
     );
 
-    // Handle SET_VOLUME
+    // Handle SET_VOLUME - applies to video only (audio has independent volumes)
     playerManager.setMessageInterceptor(
       cast.framework.messages.MessageType.SET_VOLUME,
       (volumeData) => {
@@ -92,9 +145,29 @@
       }
     );
 
+    // Custom message channel for audio control updates
+    const CUSTOM_CHANNEL = 'urn:x-cast:com.fireplaceapp.audio';
+    context.addCustomMessageListener(CUSTOM_CHANNEL, (event) => {
+      const data = event.data;
+      if (data.action === 'setAudioVolume' && data.id && audioTracks[data.id]) {
+        audioTracks[data.id].volume = data.volume;
+      } else if (data.action === 'addAudio' && data.id && data.url) {
+        const url = data.url.startsWith('http') ? data.url : AUDIO_BASE_URL + data.url;
+        const audio = createAudioTrack(data.id, url, data.volume || 1.0);
+        audio.play().catch(() => {});
+      } else if (data.action === 'removeAudio' && data.id && audioTracks[data.id]) {
+        audioTracks[data.id].pause();
+        audioTracks[data.id].src = '';
+        delete audioTracks[data.id];
+      }
+    });
+
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.skipPlayersLoad = true;  // We handle playback ourselves
+    options.skipPlayersLoad = true;
+    options.customNamespaces = {
+      [CUSTOM_CHANNEL]: cast.framework.system.MessageType.JSON
+    };
 
     context.start(options);
   </script>
